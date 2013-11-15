@@ -1,0 +1,35 @@
+The Hackathon API Test application
+----------------------------------
+
+This sample application is meant to be a showcase of the functionalities provided
+by the Zalando Hackathon API.
+
+To build the application, Apache Maven is required. This was tested on Maven 3.0.x
+but it should work on Mave 2.x without problems. Simple open a command prompt /
+shell on this folder and run the follow command:
+
+mvn package
+
+This command will generate the application package and javadocs. To execute the
+application, do the following:
+
+cd target
+java -jar hackathon-test.jar
+
+The application is a Swing application and the use should be self explanatory for
+the most part. The first thing to do is to fill the "Shop Address" text box and 
+request the list of domains. If a valid Zalando shop address is supplied, the
+"Domains" tab should be filled with information about domains and all the other
+tabs should have their domain combo boxes filled as well. Each tab is meant to
+be able to call one of the operations provided by the Hackathon API and present
+on a crude manner the data returned.
+
+To see the Javadocs generated during the build, point your web browser to the
+following file:
+
+target/site/apidocs/index.html
+
+As a regular Maven project, this project could be opened directly or imported by
+the most popular Java IDEs available, such as Eclipse, Netbeans or IntelliJ.
+
+For details about Hackthon API specifics, please consult the Hackathon API manual.

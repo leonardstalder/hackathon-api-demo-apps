@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<!--
+The Hackathon API Test application
+----------------------------------
+
+This sample application is meant to be a showcase of the functionalities provided
+by the Zalando Hackathon API.
+
+To execute the application, just open this file on any web browser.
+
+The application is a Javascript application and the use should be self explanatory 
+for the most part. The first thing to do is to fill the "Shop Address" text box and 
+request the list of domains. If a valid Zalando shop address is supplied, the
+"Domains" tab should be filled with information about domains and all the other
+tabs should have their domain combo boxes filled as well. Each tab is meant to
+be able to call one of the operations provided by the Hackathon API and present
+on a crude manner the data returned.
+
+For details about Hackthon API specifics, please consult the Hackathon API manual.
+
+NOTE: This application uses CORS specification to handle cross origin security issues.
+Hackathon API fully supports CORS and any Javascript Ajax call from any origin should
+be accepted.
+-->
+<html>
+    <head>
+        <title>Sample Hackathon API client</title>
+        <style>
+            .tabs {
+                position: relative;
+                display: block;
+                width: 100%;
+                border-bottom: 2px solid black;
+                padding-left: 0;
+                line-height: 27px;
+            }
+            #domainsTab {
+                z-index: 600;
+                left: 40px;
+                background-color: azure;
+            }
+            #brandsTab {
+                z-index: 500;
+                left: 140px;
+                background-color: cornsilk;
+            }
+            #attributesTab {
+                z-index: 400;
+                left: 240px;
+                background-color: honeydew;
+            }
+            #categoriesTab {
+                z-index: 300;
+                left: 340px;
+                background-color: lavenderblush;
+            }
+            #articleTab {
+                z-index: 200;
+                left: 440px;
+                background-color: mistyrose;
+            }
+            #searchTab {
+                z-index: 100;
+                left: 540px;
+                background-color: thistle;
+            }
+            .tabs > a {
+                display: inline-block;
+                text-decoration: none;
+                vertical-align: middle;
+                text-align: center;
+                width: 120px;
+                position: absolute;
+                border-top: 1px solid darkblue;
+                border-left: 1px solid darkblue;
+                border-right: 1px solid darkblue;
+                height: 24px;
+                top: 2px;
+            }
+            .tabs .selectedTab {
+                z-index: 5000 !IMPORTANT;
+                top: 0px !IMPORTANT;
+                height: 26px !IMPORTANT;
+                font-weight: bold !IMPORTANT;
+            }
+            div.tabContents > div {
+                display: none;
+                position: relative;
+            }
+            div.tabContents .selectedTab {
+                display: block !IMPORTANT;
+            }
+            table.dataTable {
+                display: table;
+                border-collapse: collapse;
+                border: 1px solid black;
+            }
+            table.dataTable td {
+                vertical-align: top;
+            }
+            table.dataTable tr.even td {
+                background-color: lightgoldenrodyellow;
+            }
+            table.dataTable td,
+            table.dataTable th {
+                border: solid 1px black;
+            }
+            table.dataTable th,
+            table.dataTable .center {
+                text-align: center;
+            }
+            table.dataTable .maxwidth {
+                width: 100%;
+            }
+            table.dataTable .scrollable {
+                display: block;
+                max-height: 150px;
+                overflow-y: scroll;
+            }
+            table.dataTable td.articleimage {
+                vertical-align: middle;
+                text-align: center;
+            }
+            table.dataTable td.articleimage img {
+                max-height: 40px;
+                border: none;
+            }
+            table.dataTable a {
+                text-decoration: none;
+                color: blue;
+            }
+            span.fieldName,
+            span.fieldName2 {
+                font-weight: bold;
+            }
+            h5 {
+                font-weight: bold;
+                font-size: large;
+            }
+            span.fieldName:after {
+                content: ": ";
+                font-weight: bold;
+            }
+            span.fieldName2:after {
+                content: " ";
+                font-weight: bold;
+            }
+        </style>
+    </head>
+    <body>
+        <script language="javascript">
+
+            /*
+             * If true, then the shop address should be appended with the Hackathon API subdomain on 
+             * the URL. This depends on how the API is deployed. Please ask Zalando technical staff
+             * if this should be the case. The subdomain is '/hackathon-api'. So, with subdomain
+             * added to the URL, a call for the list of brands, for example, would be like
+             * 'http://www.zalando.de/hackathon-api/brands/www.zalando.de'.
+             */
+            var APPEND_API_SUBDOMAIN = false;
+
+            // We emulate a tab component using Javascript. Each tab should be registered here.
+            var tabs = [ "domains", "brands", "attributes", "categories", "article", "search" ];
+
+            // This variable keeps the latest list of domains so we avoid reading domains again all
+            // the time
+            var currentDomains = null;
+
+            /*
+             * Replaces the current visible tab by the supplied one.
+             *
+             * @param tabName the name of the tab to show.
+             */
+            function showTab(tabName) {
+                var i;
+                for(i = 0; i < tabs.length; i++) {
+                    document.getElementById(tabs[i]).className = "";
+                    document.getElementById(tabs[i] + "Tab").className = "";
+                }
+                document.getElementById(tabName).className = "selectedTab";
+                document.getElementById(tabName + "Tab").className = "selectedTab";
+            }
+
+            /*
+             * Takes the address supplied by the user and formats it for an Ajax Rest call.
+             *
+             * @return a formatted URL to call Hackathon API. The protocol and API's subdomain are 
+             *         added.
+             */
+            function parseShopAddress() {
+                var shopAddress = document.forms['domainForm'].urlToCall.value;
+                shopAddress = shopAddress.trim();
+                if(shopAddress.substring(0,4).toLowerCase() != "http") {
+                    shopAddress = "http://" + shopAddress;
+                }
+                if(shopAddress.substring(shopAddress.length - 1) != "/") {
+                    shopAddress = shopAddress + "/";
+                }
+                if (APPEND_API_SUBDOMAIN) {
+                    shopAddress = shopAddress + "hackathon-api/";
+                }
+                return shopAddress;
+            }
+
+            /*
+             * On each tab there is a combo box to select the domain for the operation. This method
+             * will clear all the combos, so they can be populated with the latest list of domains.
+             */
+            function clearDomainSelects() {
+                var doRemove = function(theSelect) {
+                    var k;
+                    for(k = theSelect.options.length; k >= 0; k--) {
+                        theSelect.options[k] = null;
+                    }
+                };
+                doRemove(document.forms['brandsForm'].domainList);
+                doRemove(document.forms['attributesForm'].domainList);
+                doRemove(document.forms['categoriesForm'].domainList);
+                doRemove(document.forms['articleForm'].domainList);
+                doRemove(document.forms['searchForm'].domainList);
+                doRemove(document.forms['searchForm'].categoryList);
+                doRemove(document.forms['searchForm'].brandList);
+            }
+
+            /*
+             * Adds one domain to all combo boxes. 
+             *
+             * @param domainName the name of the domain to be added.
+             */
+            function addDomainToSelects(domainName) {
+                var doAdd = function (theSelect, domainToAdd) {
+                    var newOption = document.createElement('OPTION');
+                    newOption.value = domainToAdd;
+                    newOption.innerHTML = domainToAdd;
+                    theSelect.options.add(newOption);
+                };
+                doAdd(document.forms['brandsForm'].domainList, domainName);
+                doAdd(document.forms['attributesForm'].domainList, domainName);
+                doAdd(document.forms['categoriesForm'].domainList, domainName);
+                doAdd(document.forms['articleForm'].domainList, domainName);
+                doAdd(document.forms['searchForm'].domainList, domainName);
+            }
+
+            /*
+             * Generic function that returns the value selected on a combo box.
+             *
+             * @param selectElement the select element to inspect.
+             *
+             * @returns the value of the currently selected option, or UNDEFINED if no option is 
+             *          selected.
+             */
+            function getSelectedOption(selectElement) {
+                var k;
+                for(k = 0; k < selectElement.options.length; k++) {
+                    if(selectElement.options[k].selected) {
+                        return selectElement.options[k].value;
+                    }
+                }
+                return undefined;
+            }
+
+            /*
+             * Performs an Ajax call, specifying JSON as return content type.
+             *
+             * @param urlToCall the URL to be called.
+             * @param resultFunction a function pointer. This function will be called when the
+             *        results are available. The function should accept one parameter that will be
+             *        the result.
+             */
+            function callURL(urlToCall, resultFunction) {
+                var req = new window.XMLHttpRequest;
+                req.open("GET", urlToCall, true);
+                req.responseType = "text";
+                req.setRequestHeader("Accept", "application/json");
+                req.setRequestHeader("Content-Type", "application/json");
+                req.onreadystatechange = function () {
+                    if (req.readyState == 4) {
+                        resultFunction(req.responseText);
+                    }
+                };
+                if (req.withCredentials !== undefined) {
+                    req.send();
+                } else {
+                    alert("Browser does not support CORS");
+                }
+            }
+
+            /*
+             * Reads the list of domain data and populates the domain tab.
+             */
+            function readDomainData() {
+                var resultFunction = function(value) {
+                    var domainsResult = JSON.parse(value);
+                    currentDomains = domainsResult.data;
+                    clearDomainSelects();
+                    var domainTable = "<table class='dataTable'>";
+                    domainTable += "<thead>";
+                    domainTable += "<tr>";
+                    domainTable += "<th>URL</th>";
+                    domainTable += "<th>Mobile URL</th>";
+                    domainTable += "<th>Locale</th>";
+                    domainTable += "<th>Basket URL</th>";
+                    domainTable += "<th>Currency Code</th>";
+                    domainTable += "</tr>";
+                    domainTable += "</thead>";
+                    domainTable += "<tbody>";
+                    var k;
+                    for(k = 0; k < currentDomains.length; k++) {
+                        domainTable += "<tr";
+                        if(((k + 1) % 2) === 0) {
+                            domainTable += " class='even'";
+                        }
+                        domainTable += ">";
+                        domainTable += "<td>";
+                        domainTable += currentDomains[k].url;
+                        domainTable += "</td>";
+                        domainTable += "<td>";
+                        domainTable += currentDomains[k].mobileUrl;
+                        domainTable += "</td>";
+                        domainTable += "<td class='center'>";
+                        domainTable += currentDomains[k].locale;
+                        domainTable += "</td>";
+                        domainTable += "<td><a href='";
+                        domainTable += currentDomains[k].basketUrl;
+                        domainTable += "'>";
+                        domainTable += currentDomains[k].basketUrl;
+                        domainTable += "</a></td>";
+                        domainTable += "<td class='center'>";
+                        domainTable += currentDomains[k].currencyCode;
+                        domainTable += "</td>";
+                        domainTable += "</tr>";
+                        addDomainToSelects(currentDomains[k].url);
+                    }
+                    domainTable += "</tbody>";
+                    domainTable += "</table>";
+                    document.getElementById("domains").innerHTML = domainTable;
+                };
+                callURL(parseShopAddress() + "domains", resultFunction);
+            }
+
+            /*
+             * Reads the list of brands and populates the brands tab.
+             */
+            function readBrandData() {
+                var domainName = getSelectedOption(document.forms['brandsForm'].domainList);
+                if(domainName === undefined) {
+                    return;
+                }
+                var resultFunction = function(value) {
+                    var brandsResult = JSON.parse(value);
+                    brandsResult = brandsResult.data;
+                    var brandTable = "<table class='dataTable'>";
+                    brandTable += "<thead>";
+                    brandTable += "<tr>";
+                    brandTable += "<th>Name</th>";
+                    brandTable += "<th>URL Key</th>";
+                    brandTable += "<th>Brand Code</th>";
+                    brandTable += "<th>Logo</th>";
+                    brandTable += "<th>Description</th>";
+                    brandTable += "</tr>";
+                    brandTable += "</thead>";
+                    brandTable += "<tbody>";
+                    var k;
+                    for(k = 0; k < brandsResult.length; k++) {
+                        brandTable += "<tr";
+                        if(((k + 1) % 2) === 0) {
+                            brandTable += " class='even'";
+                        }
+                        brandTable += ">";
+                        brandTable += "<td>";
+                        brandTable += brandsResult[k].name;
+                        brandTable += "</td>";
+                        brandTable += "<td>";
+                        brandTable += brandsResult[k].urlKey;
+                        brandTable += "</td>";
+                        brandTable += "<td class='center'>";
+                        brandTable += brandsResult[k].brandCode;
+                        brandTable += "</td>";
+                        brandTable += "<td class='center'>";
+                        if(brandsResult[k].logoURL !== null && brandsResult[k].logoURL !== undefined && brandsResult[k].logoURL.length > 0) {
+                            brandTable += "<img src='";
+                            brandTable += brandsResult[k].logoURL;
+                            brandTable += "' />";
+                        } else {
+                            brandTable += "&nbsp;";
+                        }
+                        brandTable += "</td>";
+                        brandTable += "<td class='maxwidth'>";
+                        if(brandsResult[k].description !== null && brandsResult[k].description !== undefined && brandsResult[k].description.length > 0) {
+                            brandTable += brandsResult[k].description;
+                        } else {
+                            brandTable += "&nbsp;";
+                        }
+                        brandTable += "</td>";
+                        brandTable += "</tr>";
+                    }
+                    brandTable += "</tbody>";
+                    brandTable += "</table>";
+                    document.getElementById("brandsTable").innerHTML = brandTable;
+                };
+                callURL(parseShopAddress() + "brands/" + domainName, resultFunction);
+            }
+
+            /*
+             * Reads the list of attributes and populates the attributes tab.
+             */
+            function readAttributeData() {
+                var domainName = getSelectedOption(document.forms['attributesForm'].domainList);
+                if(domainName === undefined) {
+                    return;
+                }
+                var resultFunction = function(value) {
+                    var attributesResult = JSON.parse(value);
+                    attributesResult = attributesResult.data;
+                    var attributeTable = "<table class='dataTable'>";
+                    attributeTable += "<thead>";
+                    attributeTable += "<tr>";
+                    attributeTable += "<th>Label</th>";
+                    attributeTable += "<th>Key</th>";
+                    attributeTable += "<th>Values</th>";
+                    attributeTable += "</tr>";
+                    attributeTable += "</thead>";
+                    attributeTable += "<tbody>";
+                    var k;
+                    for(k = 0; k < attributesResult.length; k++) {
+                        attributeTable += "<tr";
+                        if(((k + 1) % 2) === 0) {
+                            attributeTable += " class='even'";
+                        }
+                        attributeTable += ">";
+                        attributeTable += "<td>";
+                        attributeTable += attributesResult[k].label;
+                        attributeTable += "</td>";
+                        attributeTable += "<td>";
+                        attributeTable += attributesResult[k].key;
+                        attributeTable += "</td>";
+                        attributeTable += "<td>";
+                        if(attributesResult[k].values !== null && attributesResult[k].values !== undefined && attributesResult[k].values.count > 0) {
+                            var j;
+                            for(j = 0; j < attributesResult[k].values.data.length; j++) {
+                                attributeTable += attributesResult[k].values.data[j].key;
+                                attributeTable += "=";
+                                attributeTable += attributesResult[k].values.data[j].label;
+                                if(j < (attributesResult[k].values.data.length - 1)) {
+                                    attributeTable += "<br />";
+                                }
+                            }
+                        } else {
+                            attributeTable += "&nbsp;";
+                        }
+                        attributeTable += "</td>";
+                        attributeTable += "</tr>";
+                    }
+                    attributeTable += "</tbody>";
+                    attributeTable += "</table>";
+                    document.getElementById("attributesTable").innerHTML = attributeTable;
+                };
+                callURL(parseShopAddress() + "attributes/" + domainName, resultFunction);
+            }
+
+            /*
+             * Reads the list of categories and populates the categories tab.
+             */
+            function readCategoryData() {
+                var domainName = getSelectedOption(document.forms['categoriesForm'].domainList);
+                if(domainName === undefined) {
+                    return;
+                }
+                var resultFunction = function(value) {
+                    var categoriesResult = JSON.parse(value);
+                    categoriesResult = categoriesResult.data;
+                    var categoryTable = "<table class='dataTable'>";
+                    categoryTable += "<thead>";
+                    categoryTable += "<tr>";
+                    categoryTable += "<th>Name</th>";
+                    categoryTable += "<th>Depth</th>";
+                    categoryTable += "<th>URL Key</th>";
+                    categoryTable += "<th>Parent URL Key</th>";
+                    categoryTable += "</tr>";
+                    categoryTable += "</thead>";
+                    categoryTable += "<tbody>";
+                    var k;
+                    for(k = 0; k < categoriesResult.length; k++) {
+                        categoryTable += "<tr";
+                        if(((k + 1) % 2) === 0) {
+                            categoryTable += " class='even'";
+                        }
+                        categoryTable += ">";
+                        categoryTable += "<td>";
+                        categoryTable += categoriesResult[k].name;
+                        categoryTable += "</td>";
+                        categoryTable += "<td>";
+                        categoryTable += categoriesResult[k].depth;
+                        categoryTable += "</td>";
+                        categoryTable += "<td>";
+                        categoryTable += "<a name='";
+                        categoryTable += categoriesResult[k].urlKey;
+                        categoryTable += "'>";
+                        categoryTable += categoriesResult[k].urlKey;
+                        categoryTable += "</a>";
+                        categoryTable += "</td>";
+                        categoryTable += "<td>";
+                        if(categoriesResult[k].parentUrlKey !== null && categoriesResult[k].parentUrlKey !== undefined && categoriesResult[k].parentUrlKey.length > 0) {
+                            categoryTable += "<a href='#";
+                            categoryTable += categoriesResult[k].parentUrlKey;
+                            categoryTable += "'>";
+                            categoryTable += categoriesResult[k].parentUrlKey;
+                            categoryTable += "</a>";
+                        } else {
+                            categoryTable += "&nbsp;";
+                        }
+                        categoryTable += "</td>";
+                        categoryTable += "</tr>";
+                    }
+                    categoryTable += "</tbody>";
+                    categoryTable += "</table>";
+                    document.getElementById("categoriesTable").innerHTML = categoryTable;
+                };
+                callURL(parseShopAddress() + "categories/" + domainName, resultFunction);
+            }
+
+            /*
+             * Reads the information about an specific article and populates the article tab.
+             * The article is selected by the SKU, provided on the appropriate form field.
+             */
+            function inspectArticle() {
+                var domainName = getSelectedOption(document.forms['articleForm'].domainList);
+                if(domainName === undefined) {
+                    return;
+                }
+                var articleSKU = document.forms['articleForm'].sku.value;
+                if(articleSKU === null || articleSKU === undefined || articleSKU.trim().length === 0) {
+                    return;
+                }
+                articleSKU = articleSKU.trim();
+                var resultFunction = function(value) {
+                    var articleResult = JSON.parse(value);
+                    var articleReport = "<h5>";
+                    articleReport += articleResult.name;
+                    articleReport += "</h5>";
+                    articleReport += "<p><span class='fieldName'>";
+                    articleReport += "SKU";
+                    articleReport += "</span>";
+                    articleReport += articleResult.sku;
+                    articleReport += "</p>";
+                    articleReport += "<p><span class='fieldName'>";
+                    articleReport += "URL Key";
+                    articleReport += "</span>";
+                    articleReport += articleResult.urlKey;
+                    articleReport += "</p>";
+                    articleReport += "<p><span class='fieldName'>";
+                    articleReport += "Brand code";
+                    articleReport += "</span>";
+                    articleReport += articleResult.brandCode;
+                    articleReport += "</p>";
+                    if(articleResult.description !== null && articleResult.description !== undefined && articleResult.description.length > 0) {
+                        articleReport += "<p><span class='fieldName'>";
+                        articleReport += "Description";
+                        articleReport += "</span>";
+                        articleReport += articleResult.description;
+                        articleReport += "</p>";
+                    }
+                    articleReport += "<p><span class='fieldName'>";
+                    articleReport += "Price";
+                    articleReport += "</span>";
+                    articleReport += articleResult.price;
+                    articleReport += " (original ";
+                    articleReport += articleResult.priceOriginal;
+                    articleReport += ")";
+                    articleReport += "</p>";
+                    articleReport += "<p><span class='fieldName'>";
+                    articleReport += "Average rating";
+                    articleReport += "</span>";
+                    articleReport += articleResult.averageRating;
+                    articleReport += "</p>";
+                    articleReport += "<p><span class='fieldName'>";
+                    articleReport += "Color";
+                    articleReport += "</span>";
+                    articleReport += articleResult.color;
+                    articleReport += " (family ";
+                    articleReport += articleResult.colorFamily;
+                    articleReport += ")";
+                    articleReport += "</p>";
+                    if(articleResult.category !== null && articleResult.category !== undefined && articleResult.category.count > 0) {
+                        articleReport += "<p><span class='fieldName'>";
+                        articleReport += "Categories";
+                        articleReport += "</span></p>";
+                        articleReport += "<ul>";
+                        var k;
+                        for(k = 0; k < articleResult.category.data.length; k++) {
+                            articleReport += "<li>";
+                            articleReport += articleResult.category.data[k];
+                            articleReport += "</li>";
+                        }
+                        articleReport += "</ul>";
+                    }
+                    if(articleResult.attributes !== null && articleResult.attributes !== undefined && articleResult.attributes.count > 0) {
+                        articleReport += "<p><span class='fieldName'>";
+                        articleReport += "Custom attributes";
+                        articleReport += "</span></p>";
+                        var k;
+                        for(k = 0; k < articleResult.attributes.data.length; k++) {
+                            articleReport += "<ul>";
+                            articleReport += "<li><span class='fieldName'>";
+                            articleReport += "Attribute";
+                            articleReport += "</span>";
+                            articleReport += articleResult.attributes.data[k].attributeLabel;
+                            articleReport += "</li>";
+                            if(articleResult.attributes.data[k].attributeKey !== null && articleResult.attributes.data[k].attributeKey !== undefined && articleResult.attributes.data[k].attributeKey.length > 0) {
+                                articleReport += "<li><span class='fieldName'>";
+                                articleReport += "Key";
+                                articleReport += "</span>";
+                                articleReport += articleResult.attributes.data[k].attributeKey;
+                                articleReport += "</li>";
+                            }
+                            if(articleResult.attributes.data[k].value !== null && articleResult.attributes.data[k].value !== undefined && articleResult.attributes.data[k].value.count > 0) {
+                                articleReport += "<li><span class='fieldName'>";
+                                articleReport += "Values";
+                                articleReport += "</span>";
+                                var j;
+                                for(j = 0; j < articleResult.attributes.data[k].value.data.length; j++) {
+                                    if (j > 0) {
+                                        articleReport += ", ";
+                                    }
+                                    articleReport += articleResult.attributes.data[k].value.data[j];
+                                }
+                                articleReport += "</li>";
+                            }
+                            articleReport += "</ul>";
+                        }
+                    }
+                    if(articleResult.simples !== null && articleResult.simples !== undefined && articleResult.simples.count > 0) {
+                        articleReport += "<p><span class='fieldName'>";
+                        articleReport += "Simples";
+                        articleReport += "</span></p>";
+                        var k;
+                        for(k = 0; k < articleResult.simples.data.length; k++) {
+                            articleReport += "<ul>";
+                            articleReport += "<li><span class='fieldName'>";
+                            articleReport += "SKU";
+                            articleReport += "</span>";
+                            articleReport += articleResult.simples.data[k].sku;
+                            articleReport += "</li>";
+                            articleReport += "<li><span class='fieldName'>";
+                            articleReport += "EAN";
+                            articleReport += "</span>";
+                            articleReport += articleResult.simples.data[k].ean;
+                            articleReport += "</li>";
+                            articleReport += "<li><span class='fieldName'>";
+                            articleReport += "Size";
+                            articleReport += "</span>";
+                            articleReport += articleResult.simples.data[k].size;
+                            articleReport += "</li>";
+                            articleReport += "<li><span class='fieldName2'>";
+                            articleReport += "Stock available?";
+                            articleReport += "</span>";
+                            articleReport += (articleResult.simples.data[k].stockAvailable?"Yes":"No");
+                            articleReport += "</li>";
+                            articleReport += "<li><span class='fieldName'>";
+                            articleReport += "URL to add it to basket";
+                            articleReport += "</span>";
+                            articleReport += articleResult.simples.data[k].addToBasketUrl;
+                            articleReport += "</li>";
+                            articleReport += "</ul>";
+                        }
+                    }
+                    if(articleResult.otherColors !== null && articleResult.otherColors !== undefined && articleResult.otherColors.count > 0) {
+                        articleReport += "<p><span class='fieldName'>";
+                        articleReport += "Other colors";
+                        articleReport += "</span></p>";
+                        articleReport += "<ul>";
+                        var k;
+                        for(k = 0; k < articleResult.otherColors.data.length; k++) {
+                            articleReport += "<li><span class='fieldName'>";
+                            articleReport += "SKU";
+                            articleReport += "</span>";
+                            articleReport += articleResult.otherColors.data[k];
+                            articleReport += "</li>";
+                        }
+                        articleReport += "</ul>";
+                    }
+                    if(articleResult.images !== null && articleResult.images !== undefined) {
+                        var first = true;
+                        for (var key in articleResult.images) {
+                            if (articleResult.images.hasOwnProperty(key)) {
+                                if(first) {
+                                    first = false;
+                                    articleReport += "<p><span class='fieldName'>";
+                                    articleReport += "Images";
+                                    articleReport += "</span></p>";
+                                    articleReport += "<table class='dataTable'>";
+                                    articleReport += "<thead>";
+                                    articleReport += "<tr>";
+                                    articleReport += "<th>Type</th>";
+                                    articleReport += "<th>Image</th>";
+                                    articleReport += "</tr>";
+                                    articleReport += "</thead>";
+                                    articleReport += "<tbody>";
+                                }
+                                articleReport += "<tr>";
+                                articleReport += "<td>";
+                                articleReport += key;
+                                articleReport += "</td>";
+                                articleReport += "<td><img src='";
+                                articleReport += articleResult.images[key];
+                                articleReport += "' /></td>";
+                                articleReport += "</tr>";
+                            }
+                        }
+                        if(!first) {
+                            articleReport += "</tbody>";
+                            articleReport += "</table>";
+                        }
+                    }
+                    if(articleResult.reviews !== null && articleResult.reviews !== undefined && articleResult.reviews.count > 0) {
+                        articleReport += "<p><span class='fieldName'>";
+                        articleReport += "Reviews";
+                        articleReport += "</span></p>";
+                        articleReport += "<table class='dataTable'>";
+                        articleReport += "<thead>";
+                        articleReport += "<tr>";
+                        articleReport += "<th>Author</th>";
+                        articleReport += "<th>City</th>";
+                        articleReport += "<th>Rating</th>";
+                        articleReport += "<th>Date</th>";
+                        articleReport += "<th>Article SKU</th>";
+                        articleReport += "<th>Subject</th>";
+                        articleReport += "<th>Text</th>";
+                        articleReport += "</tr>";
+                        articleReport += "</thead>";
+                        articleReport += "<tbody>";
+                        var k;
+                        for (k = 0; k < articleResult.reviews.data.length; k++) {
+                            articleReport += "<tr";
+                            if(((k + 1) % 2) === 0) {
+                                articleReport += " class='even'";
+                            }
+                            articleReport += ">";
+                            articleReport += "<td>";
+                            if(articleResult.reviews.data[k].author.length > 0) {
+                                articleReport += articleResult.reviews.data[k].author;
+                            } else {
+                                articleReport += "&nbsp;";
+                            }
+                            articleReport += "</td>";
+                            articleReport += "<td>";
+                            if(articleResult.reviews.data[k].city.length > 0) {
+                                articleReport += articleResult.reviews.data[k].city;
+                            } else {
+                                articleReport += "&nbsp;";
+                            }
+                            articleReport += "</td>";
+                            articleReport += "<td>";
+                            articleReport += articleResult.reviews.data[k].rating;
+                            articleReport += "</td>";
+                            articleReport += "<td>";
+                            articleReport += new Date(articleResult.reviews.data[k].date);
+                            articleReport += "</td>";
+                            articleReport += "<td>";
+                            articleReport += articleResult.reviews.data[k].articleSku;
+                            articleReport += "</td>";
+                            articleReport += "<td>";
+                            if(articleResult.reviews.data[k].subject.length > 0) {
+                                articleReport += articleResult.reviews.data[k].subject;
+                            } else {
+                                articleReport += "&nbsp;";
+                            }
+                            articleReport += "</td>";
+                            articleReport += "<td class='maxwidth'>";
+                            if(articleResult.reviews.data[k].text.length > 0) {
+                                articleReport += articleResult.reviews.data[k].text;
+                            } else {
+                                articleReport += "&nbsp;";
+                            }
+                            articleReport += "</td>";
+                            articleReport += "</tr>";
+                        }
+                        articleReport += "</tbody>";
+                        articleReport += "</table>";
+                    }
+                    document.getElementById("articleReport").innerHTML = articleReport;
+                };
+                callURL(parseShopAddress() + "article/" + domainName + "/" + articleSKU, resultFunction);
+            }
+
+            /*
+             * Performs a search on the catalog and populates the search tab.
+             * To perform a search, first the person should select a domain and use the "Populate
+             * Categories and Brands" button. Once the lists of categories and brands are populated,
+             * the user may specify the search parameters.
+             */
+            function populateForSearch() {
+                var domainName = getSelectedOption(document.forms['searchForm'].domainList);
+                if(domainName === undefined) {
+                    return;
+                }
+                var categoriesFunction = function(value) {
+                    var categoriesResult = JSON.parse(value);
+                    categoriesResult = categoriesResult.data;
+                    var theSelect = document.forms['searchForm'].categoryList;
+                    var k;
+                    for(k = theSelect.options.length; k >= 0; k--) {
+                        theSelect.options[k] = null;
+                    }
+                    for(k = 0; k < categoriesResult.length; k++) {
+                        var newOption = document.createElement('OPTION');
+                        newOption.value = categoriesResult[k].urlKey;
+                        newOption.innerHTML = categoriesResult[k].name;
+                        theSelect.options.add(newOption);
+                    }
+                };
+                var brandsFunction = function(value) {
+                    var brandsResult = JSON.parse(value);
+                    brandsResult = brandsResult.data;
+                    var theSelect = document.forms['searchForm'].brandList;
+                    var k;
+                    for(k = theSelect.options.length; k >= 0; k--) {
+                        theSelect.options[k] = null;
+                    }
+                    var newOption = document.createElement('OPTION');
+                    newOption.value = "";
+                    newOption.innerHTML = " -- ALL -- ";
+                    newOption.selected = true;
+                    theSelect.options.add(newOption);
+                    for(k = 0; k < brandsResult.length; k++) {
+                        newOption = document.createElement('OPTION');
+                        newOption.value = brandsResult[k].urlKey;
+                        newOption.innerHTML = brandsResult[k].name;
+                        theSelect.options.add(newOption);
+                    }
+                };
+                callURL(parseShopAddress() + "categories/" + domainName, categoriesFunction);
+                callURL(parseShopAddress() + "brands/" + domainName, brandsFunction);
+            }
+
+            function performSearch() {
+                var domainName = getSelectedOption(document.forms['searchForm'].domainList);
+                if(domainName === undefined) {
+                    alert("Please select a valid domain.");
+                    return;
+                }
+                var categoryName = getSelectedOption(document.forms['searchForm'].categoryList);
+                if(categoryName === undefined) {
+                    alert("Please select a valid category.");
+                    return;
+                }
+                var brandName = getSelectedOption(document.forms['searchForm'].brandList);
+                if(brandName === undefined) {
+                    alert("Please select a valid brand.");
+                    return;
+                }
+                var pageNumber = parseInt(document.forms['searchForm'].pageNumber.value);
+                if (isNaN(pageNumber) || pageNumber <= 0) {
+                    pageNumber = 1;
+                }
+                var pageSize = parseInt(document.forms['searchForm'].pageSize.value);
+                if (isNaN(pageSize) || pageSize <= 0) {
+                    pageSize = 100;
+                }
+                var sortCriterion = getSelectedOption(document.forms['searchForm'].sortCriterion);
+                if(sortCriterion === undefined) {
+                    alert("Please select a valid sort criterion.");
+                    return;
+                }
+                var textualSearch = document.forms['searchForm'].q.value.trim();
+                if(textualSearch.length > 0) {
+                    textualSearch = escape(textualSearch);
+                }
+                var completeURL = parseShopAddress() + "search/" + domainName + "/" + categoryName;
+                if(brandName.length > 0) {
+                    completeURL += "/" + brandName;
+                }
+                var extraParams = false;
+                if(pageNumber !== 1) {
+                    if (!extraParams) {
+                        extraParams = true;
+                        completeURL += "?";
+                    } else {
+                        completeURL += "&";
+                    }
+                    completeURL += "page=" + pageNumber;
+                }
+                if(pageSize !== 100) {
+                    if (!extraParams) {
+                        extraParams = true;
+                        completeURL += "?";
+                    } else {
+                        completeURL += "&";
+                    }
+                    completeURL += "page_size=" + pageSize;
+                }
+                if(sortCriterion !== "default") {
+                    if (!extraParams) {
+                        extraParams = true;
+                        completeURL += "?";
+                    } else {
+                        completeURL += "&";
+                    }
+                    completeURL += "sort=" + sortCriterion;
+                }
+                if(textualSearch.length > 0) {
+                    if (!extraParams) {
+                        extraParams = true;
+                        completeURL += "?";
+                    } else {
+                        completeURL += "&";
+                    }
+                    completeURL += "q=" + textualSearch;
+                }
+                var searchResultsFunction = function(value) {
+                    var searchResult = JSON.parse(value);
+                    var searchReport = "<h5>";
+                    searchReport += (searchResult.searchResults.count === 0?"No":searchResult.searchResults.count);
+                    searchReport += " article";
+                    searchReport += (searchResult.searchResults.count === 1?"":"s");
+                    searchReport += " found.</h5>";
+
+                    if(searchResult.searchFacets !== null && searchResult.searchFacets !== undefined && searchResult.searchFacets.count > 0) {
+                        searchReport += "<p><span class='fieldName'>";
+                        searchReport += "Facets";
+                        searchReport += "</span></p>";
+                        searchReport += "<table class='dataTable'>";
+                        searchReport += "<thead>";
+                        searchReport += "<tr>";
+                        searchReport += "<th>Attribute</th>";
+                        searchReport += "<th>Quantities</th>";
+                        searchReport += "</tr>";
+                        searchReport += "</thead>";
+                        searchReport += "<tbody>";
+                        var k;
+                        for(k = 0; k < searchResult.searchFacets.data.length; k++) {
+                            searchReport += "<tr";
+                            if(((k + 1) % 2) === 0) {
+                                searchReport += " class='even'";
+                            }
+                            searchReport += ">";
+                            searchReport += "<td>";
+                            searchReport += searchResult.searchFacets.data[k].attributeKey;
+                            searchReport += "</td>";
+                            searchReport += "<td><span class='scrollable'>";
+                            if(searchResult.searchFacets.data[k].quantities !== null && searchResult.searchFacets.data[k].quantities !== undefined && searchResult.searchFacets.data[k].quantities.count > 0) {
+                                var j;
+                                for(j = 0; j < searchResult.searchFacets.data[k].quantities.data.length; j++) {
+                                    if (j > 0) {
+                                        searchReport += "<br />";
+                                    }
+                                    searchReport += searchResult.searchFacets.data[k].quantities.data[j].label;
+                                    searchReport += " (";
+                                    searchReport += searchResult.searchFacets.data[k].quantities.data[j].key;
+                                    searchReport += "): ";
+                                    searchReport += searchResult.searchFacets.data[k].quantities.data[j].articleCount;
+                                }
+                            } else {
+                                searchReport += "&nbsp;";
+                            }
+                            searchReport += "</span></td>";
+                            searchReport += "</tr>";
+                        }
+                        searchReport += "</tbody>";
+                        searchReport += "</table>";
+                    }
+                    if(searchResult.fullTextSearchClassification !== null && searchResult.fullTextSearchClassification !== undefined) {
+                        var classificationData = searchResult.fullTextSearchClassification;
+                        if((classificationData.unknownTerms !== null && classificationData.unknownTerms !== undefined && classificationData.unknownTerms.count > 0)||
+                                (classificationData.knownTerms !== null && classificationData.knownTerms !== undefined && classificationData.knownTerms.count > 0)) {
+                            searchReport += "<p><span class='fieldName'>";
+                            searchReport += "Full text search classification";
+                            searchReport += "</span></p>";
+                            searchReport += "<table class='dataTable'>";
+                            searchReport += "<thead>";
+                            searchReport += "<tr>";
+                            searchReport += "<th>Term</th>";
+                            searchReport += "<th>Classification</th>";
+                            searchReport += "</tr>";
+                            searchReport += "</thead>";
+                            searchReport += "<tbody>";
+                            var k = 0;
+                            if(classificationData.unknownTerms !== null && classificationData.unknownTerms !== undefined && classificationData.unknownTerms.count > 0) {
+                                for(k = 0; k < classificationData.unknownTerms.data.length; k++) {
+                                    searchReport += "<tr";
+                                    if(((k + 1) % 2) === 0) {
+                                        searchReport += " class='even'";
+                                    }
+                                    searchReport += ">";
+                                    searchReport += "<td>";
+                                    searchReport += classificationData.unknownTerms.data[k];
+                                    searchReport += "</td>";
+                                    searchReport += "<td>Unknown</td>";
+                                    searchReport += "</tr>";
+                                }
+                            }
+                            if(classificationData.knownTerms !== null && classificationData.knownTerms !== undefined && classificationData.knownTerms.count > 0) {
+                                var j;
+                                for(j = 0; j < classificationData.knownTerms.data.length; j++) {
+                                    searchReport += "<tr";
+                                    if((((k + j) + 1) % 2) === 0) {
+                                        searchReport += " class='even'";
+                                    }
+                                    searchReport += ">";
+                                    searchReport += "<td>";
+                                    searchReport += classificationData.unknownTerms.data[j].parsedTerm;
+                                    searchReport += "</td>";
+                                    searchReport += "<td>Matched: ";
+                                    searchReport += classificationData.unknownTerms.data[j].matchedTerm;
+                                    searchReport += " (";
+                                    searchReport += classificationData.unknownTerms.data[j].matchType;
+                                    searchReport += ")</td>";
+                                    searchReport += "</tr>";
+                                }
+                            }
+                            searchReport += "</tbody>";
+                            searchReport += "</table>";
+                        }
+                    }
+                    if(searchResult.searchResults.count > 0) {
+                        searchReport += "<p><span class='fieldName'>";
+                        searchReport += "Articles";
+                        searchReport += "</span></p>";
+                        searchReport += "<table class='dataTable'>";
+                        searchReport += "<thead>";
+                        searchReport += "<tr>";
+                        searchReport += "<th>SKU</th>";
+                        searchReport += "<th>Name</th>";
+                        searchReport += "<th>URL Key</th>";
+                        searchReport += "<th>Brand Code</th>";
+                        searchReport += "<th>Price</th>";
+                        searchReport += "<th>Color</th>";
+                        searchReport += "<th>Other Colors</th>";
+                        searchReport += "<th>Attributes</th>";
+                        searchReport += "<th>Image</th>";
+                        searchReport += "</tr>";
+                        searchReport += "</thead>";
+                        searchReport += "<tbody>";
+                        var k;
+                        var foundAttribute;
+                        for(k = 0; k < searchResult.searchResults.data.length; k++) {
+                            searchReport += "<tr";
+                            if(((k + 1) % 2) === 0) {
+                                searchReport += " class='even'";
+                            }
+                            searchReport += ">";
+                            searchReport += "<td>";
+                            searchReport += searchResult.searchResults.data[k].sku;
+                            searchReport += "</td>";
+                            searchReport += "<td>";
+                            searchReport += searchResult.searchResults.data[k].name;
+                            searchReport += "</td>";
+                            searchReport += "<td>";
+                            searchReport += searchResult.searchResults.data[k].urlKey;
+                            searchReport += "</td>";
+                            searchReport += "<td>";
+                            searchReport += searchResult.searchResults.data[k].brandCode;
+                            searchReport += "</td>";
+                            searchReport += "<td>";
+                            searchReport += searchResult.searchResults.data[k].price;
+                            searchReport += " (original ";
+                            searchReport += searchResult.searchResults.data[k].priceOriginal;
+                            searchReport += ")";
+                            searchReport += "</td>";
+                            searchReport += "<td>";
+                            searchReport += searchResult.searchResults.data[k].color;
+                            searchReport += " (family ";
+                            searchReport += searchResult.searchResults.data[k].colorFamily;
+                            searchReport += ")";
+                            searchReport += "</td>";
+                            searchReport += "<td>";
+                            if(searchResult.searchResults.data[k].otherColors !== null && searchResult.searchResults.data[k].otherColors !== undefined && searchResult.searchResults.data[k].otherColors.count > 0) {
+                                var j;
+                                for(j = 0; j < searchResult.searchResults.data[k].otherColors.data.length; j++) {
+                                    if(j > 0) {
+                                        searchReport += "<br />";
+                                    }
+                                    searchReport += searchResult.searchResults.data[k].otherColors.data[j];
+                                }
+                            } else {
+                                searchReport += "&nbsp;";
+                            }
+                            searchReport += "</td>";
+                            searchReport += "<td>";
+                            foundAttribute = false;
+                            if(searchResult.searchResults.data[k].newArticle !== null && searchResult.searchResults.data[k].newArticle !== undefined && searchResult.searchResults.data[k].newArticle === true) {
+                                if (foundAttribute) {
+                                    searchReport += ", ";
+                                }
+                                foundAttribute = true;
+                                searchReport += "New";
+                            }
+                            if(searchResult.searchResults.data[k].sale !== null && searchResult.searchResults.data[k].sale !== undefined && searchResult.searchResults.data[k].sale === true) {
+                                if (foundAttribute) {
+                                    searchReport += ", ";
+                                }
+                                foundAttribute = true;
+                                searchReport += "Sale";
+                            }
+                            if(searchResult.searchResults.data[k].kids !== null && searchResult.searchResults.data[k].kids !== undefined && searchResult.searchResults.data[k].kids === true) {
+                                if (foundAttribute) {
+                                    searchReport += ", ";
+                                }
+                                foundAttribute = true;
+                                searchReport += "Kids";
+                            }
+                            if(searchResult.searchResults.data[k].oversize !== null && searchResult.searchResults.data[k].oversize !== undefined && searchResult.searchResults.data[k].oversize === true) {
+                                if (foundAttribute) {
+                                    searchReport += ", ";
+                                }
+                                foundAttribute = true;
+                                searchReport += "Oversize";
+                            }
+                            if(!foundAttribute) {
+                                searchReport += "&nbsp;";
+                            }
+                            searchReport += "</td>";
+                            if(searchResult.searchResults.data[k].imageUrl !== null && searchResult.searchResults.data[k].imageUrl !== undefined && searchResult.searchResults.data[k].imageUrl.length > 0) {
+                                searchReport += "<td class='articleimage'>";
+                                searchReport += "<a href='";
+                                searchReport += searchResult.searchResults.data[k].imageUrl;
+                                searchReport += "' target='_new'><img src='";
+                                searchReport += searchResult.searchResults.data[k].imageUrl;
+                                searchReport += "' /></a>";
+                                searchReport += "</td>";
+                            } else {
+                                searchReport += "<td>&nbsp;</td>";
+                            }
+                            searchReport += "</tr>";
+                        }
+                        searchReport += "</tbody>";
+                        searchReport += "</table>";
+                    }
+                    document.getElementById("searchTable").innerHTML = searchReport;
+                };
+                callURL(completeURL, searchResultsFunction);
+            }
+        </script>
+        <form name="domainForm">
+            <p>Shop address: 
+                <input type="text" name="urlToCall" size="60" value="http://www.zalando.de" />
+                <input type="button" value=" Read domain information " onclick="readDomainData(); return false;" />
+            </p>
+        </form>
+        <p class="tabs">&nbsp;
+            <a href="#" onclick="showTab('domains'); return false;" id="domainsTab" class="selectedTab">Domains</a>
+            <a href="#" onclick="showTab('brands'); return false;" id="brandsTab">Brands</a>
+            <a href="#" onclick="showTab('attributes'); return false;" id="attributesTab">Attributes</a>
+            <a href="#" onclick="showTab('categories'); return false;" id="categoriesTab">Categories</a>
+            <a href="#" onclick="showTab('article'); return false;" id="articleTab">Article</a>
+            <a href="#" onclick="showTab('search'); return false;" id="searchTab">Search</a>
+        </p>
+        <div class="tabContents">
+            <div id="domains" class="selectedTab">
+                <p>Please read domain information to fill this tab.</p>
+            </div>
+            <div id="brands">
+                <form name="brandsForm">
+                    <p>Select domain to use: 
+                        <select name="domainList"></select>
+                        <input type="button" value=" Read brand information " onclick="readBrandData(); return false;" />
+                    </p>
+                </form>
+                <div id="brandsTable"></div>
+            </div>
+            <div id="attributes">
+                <form name="attributesForm">
+                    <p>Select domain to use: 
+                        <select name="domainList"></select>
+                        <input type="button" value=" Read attribute information " onclick="readAttributeData(); return false;" />
+                    </p>
+                </form>
+                <div id="attributesTable"></div>
+            </div>
+            <div id="categories">
+                <form name="categoriesForm">
+                    <p>Select domain to use: 
+                        <select name="domainList"></select>
+                        <input type="button" value=" Read category information " onclick="readCategoryData(); return false;" />
+                    </p>
+                </form>
+                <div id="categoriesTable"></div>
+            </div>
+            <div id="article">
+                <form name="articleForm">
+                    <p>Select domain to use: 
+                        <select name="domainList"></select>
+                    </p>
+                    <p>Article SKU: <input type="text" name="sku" size="20" /></p>
+                    <p><input type="button" value=" Read article information " onclick="inspectArticle(); return false;" /></p>
+                </form>
+                <div id="articleReport"></div>
+            </div>
+            <div id="search">
+                <form name="searchForm">
+                    <p>Select domain to use: 
+                        <select name="domainList"></select>
+                        <input type="button" value=" Populate categories and brands " onclick="populateForSearch(); return false;" />
+                    </p>
+                    <p>Category:
+                        <select name="categoryList"></select>
+                    </p>
+                    <p>Brand:
+                        <select name="brandList"></select>
+                    </p>
+                    <p>Page: 
+                        <input type="text" name="pageNumber" value="1" size="10" />
+                        &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+                        Page Size:
+                        <input type="text" name="pageSize" value="100" size="10" />
+                    </p>
+                    <p>Sort:
+                        <select name="sortCriterion">
+                            <option value="default" selected="selected">Default</option>
+                            <option value="activation_date">Activation Date (Ascending)</option>
+                            <option value="price_asc">Price (Ascending)</option>
+                            <option value="price_desc">Price (Descending)</option>
+                            <option value="sale">Sale first</option>
+                            <option value="rating">Rating (Ascending)</option>
+                        </select>
+                    </p>
+                    <p>Textual search:
+                        <textarea name="q" cols="30" rows="5"></textarea>
+                    </p>
+                    <p><input type="button" value=" Search " onclick="performSearch(); return false;" /></p>
+                </form>
+                <div id="searchTable"></div>
+            </div>
+        </div>
+    </body>
+</html>
